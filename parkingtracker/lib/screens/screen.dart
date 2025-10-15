@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:parkingtracker/screens/initialize.dart';
 import 'package:parkingtracker/screens/lots.dart';
+import 'package:parkingtracker/widgets/password_gate.dart';
 
 // Stateful = Mutable
 class Screen extends StatefulWidget {
@@ -45,7 +46,8 @@ class _ScreenState extends State<Screen> {
       ),
     body: <Widget>[ 
       LotsScreen(),
-      InitializeScreen(),
+      PasswordGate(child: InitializeScreen()),
+
     ][currentPageIndex], // Selects current selected widget from list, passes to body ("changes" screen)
     );
   }

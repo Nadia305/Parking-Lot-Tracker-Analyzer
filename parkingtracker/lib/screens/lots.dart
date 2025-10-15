@@ -1,13 +1,14 @@
 // Lots widget that will hold list of lots to choose from.
 
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:parkingtracker/lot.dart';
-import 'package:parkingtracker/requests.dart';
 import 'package:parkingtracker/screens/lotInfo.dart';
+import 'package:parkingtracker/requests.dart';
 
-// Stateful = Mutable
+// NEW: shared state + model
+import 'package:parkingtracker/app_state.dart';
+import 'package:parkingtracker/lot.dart';
+
 class LotsScreen extends StatefulWidget {
   const LotsScreen({super.key});
 
@@ -16,95 +17,96 @@ class LotsScreen extends StatefulWidget {
 }
 
 class _LotsScreenState extends State<LotsScreen> {
+  final Requests requests = Requests();            // backend client
+  Timer? _timer;                                   // refresh timer
 
-  // Initialize Lot objects with names
-  List<Lot> lots = [
-    Lot(lotName: '1A'),
-  ];
-
-  final Requests requests = Requests(); // Create Requests object to call functions to get data
-  late Timer timer; // Will be destroyed when widget is dismissed.
-
-  // Initial state of widget: get lot data for each info, and then update periodically from there.
   @override
   void initState() {
     super.initState();
-    updateLotData();
-
-    // Every 60 seconds, refresh data
-    timer = Timer.periodic(const Duration(seconds: 30), (timer) => updateLotData());
+    updateLotData();                               // initial fetch
+    _timer = Timer.periodic(
+      const Duration(seconds: 30),                 // periodic refresh
+      (_) => updateLotData(),
+    );
   }
-  
-  // Cancel timer
+
   @override
   void dispose() {
-    timer.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 
-  // For each lot, get data from backend on how many spots available & then update UI.
+  // For each lot currently in AppState, get fresh data from backend.
   Future<void> updateLotData() async {
-    for (Lot lot in lots) { 
-      final data = await requests.fetchLotInfo(lot.lotName);
-
-      if (data != null) {
-        setState(() { // Updates UI
-          // Update lot data
-          lot.availableSpots = data['available_spots'];
-          lot.totalSpots = data['total_spots'];
-        });
+    // copy to avoid concurrent modification if list changes during loop
+    final lotsSnapshot = List<Lot>.from(AppState.I.lots);
+    for (final lot in lotsSnapshot) {
+      try {
+        final data = await requests.fetchLotInfo(lot.lotName);
+        if (data != null && mounted) {
+          setState(() {
+            lot.availableSpots = (data['available_spots'] ?? 0) as int;
+            lot.totalSpots = (data['total_spots'] ?? 0) as int;
+            // if you later return map data etc., update here too
+          });
+        }
+      } catch (_) {
+        // ignore one-off failures; you can show a toast if you want
       }
     }
   }
 
-  // Build methods called anytime Flutter rebuilds UI, returns Widget
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 227, 210, 248),
       appBar: AppBar(
-        backgroundColor: Color.fromARGB(255, 86, 163, 227),
+        backgroundColor: const Color.fromARGB(255, 86, 163, 227),
         foregroundColor: Colors.white,
-        title: Text('Available Parking Lots'),
+        title: const Text('Available Parking Lots'),
       ),
-      body: ListView.separated( // Create list of lots to choose from using itemBuilder (which allows us to dynamically create it)
-        itemBuilder: (BuildContext context, int index) {
-          return InkWell( // Allows us to recognize taps on specific containers (lots)
-            onTap: () {
-              Navigator.push( // Push new lotsInfoScreen to front and give current info on it.
-                context,
-                MaterialPageRoute<void>(
-                  builder: (context) => LotsInfoScreen(lot: lots[index]),
+      body: AnimatedBuilder(
+        animation: AppState.I,                      // rebuild when lots change
+        builder: (context, _) {
+          final lots = AppState.I.lots;
+          if (lots.isEmpty) {
+            return const Center(child: Text('No lots yet'));
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(15),
+            itemCount: lots.length,
+            separatorBuilder: (context, index) => const Divider(),
+            itemBuilder: (context, index) {
+              final lot = lots[index];
+              return InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (context) => LotsInfoScreen(lot: lot),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.only(left: 15.0, right: 25.0),
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.greenAccent,
+                    border: Border.all(color: Colors.black, width: 4),
                   ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(lot.lotName),
+                      Text('${lot.availableSpots} spots left!'),
+                    ],
+                  ),
+                ),
               );
             },
-            child: Container(
-            padding: EdgeInsets.only(left: 15.0, right: 25.0),          // pad both left/right of container
-            height: 60,
-            decoration: BoxDecoration(
-              color: Colors.greenAccent,
-              border: Border.all(
-                color: Colors.black, 
-                width: 4,
-              )
-            ),
-            child: 
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,      // put max space between children
-                children: [
-                  Text(lots[index].lotName),                            // show lot name
-                  lots[index].availableSpots != null                    // show # of spots left
-                    ? Text('${lots[index].availableSpots} spots left!') // if not null, display real value (loaded)
-                    : Text('Loading...'),                               // if null, show loading..
-                ],
-              ),
-            ),
           );
-            
         },
-        padding: const EdgeInsets.all(15), 
-        separatorBuilder: (BuildContext context, int index) => const Divider(), 
-        itemCount: lots.length,
       ),
     );
   }

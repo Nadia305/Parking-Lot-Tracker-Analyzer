@@ -1,4 +1,6 @@
 // Initialize widget that will allow user to add/initialize new lots
+import 'package:parkingtracker/app_state.dart';
+import 'package:parkingtracker/lot.dart';
 
 import 'package:flutter/material.dart';
 import 'package:parkingtracker/requests.dart';
@@ -28,41 +30,68 @@ class _InitializeScreenState extends State<InitializeScreen> {
 
   // Initialize lot function, called when button pressed - pull data from both text fields, then call initLot with data.
   void initializeLot() async {
-    final lotName = lotNameController.text;
-    final RTSPLink = rtspLinkController.text;
+  final lotName = lotNameController.text.trim();
+  final rtspLink = rtspLinkController.text.trim();
 
-    if (lotName.isNotEmpty && RTSPLink.isNotEmpty) {
-      final response = await requests.initLot(lotName, RTSPLink);
-      if (response != null) {
-        final status = response['status'];
-        var message;
-        if (status == 'success') {
-          message = 'Successfully initialized lot!';
-        } else {
-          message = response['message'];
-        }
-        // Show popup giving status/message of response
-        showDialog(
-          context: context,
-          barrierDismissible: true,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Text(status), // wrap strings in text widget to display them.
-              content: Text(message),
-              actions: <Widget>[
-                TextButton(
-                  child: const Text('Okay'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                )
-              ]
-            );
-          }
-        );
-      }
-    }
+  if (lotName.isEmpty || rtspLink.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please enter both Lot Name and RTSP Link')),
+    );
+    return;
   }
+
+  try {
+    // Call your backend
+    final response = await requests.initLot(lotName, rtspLink);
+
+    if (response != null) {
+      final status = (response['status'] ?? '').toString();
+      final message = (response['message'] ?? '').toString();
+
+      if (status.toLowerCase() == 'success') {
+        // ✅ Update local list so Lots screen shows it immediately
+        AppState.I.upsertLot(
+          Lot(
+            lotName: lotName,
+            availableSpots: 0,
+            totalSpots: 0,
+          ),
+        );
+
+        // Feedback + reset inputs
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lot "$lotName" added')),
+        );
+        lotNameController.clear();
+        rtspLinkController.clear();
+      }
+
+      // Show server response dialog
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        barrierDismissible: true,
+        builder: (_) => AlertDialog(
+          title: Text(status.isEmpty ? 'Result' : status),
+          content: Text(message.isEmpty ? 'Done.' : message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Okay'),
+            ),
+          ],
+        ),
+      );
+    }
+  } catch (e) {
+    // Handle network/other errors
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Init failed: $e')),
+    );
+  }
+}
+
+
 
   // Build methods called anytime Flutter rebuilds UI, returns Widget
   @override
